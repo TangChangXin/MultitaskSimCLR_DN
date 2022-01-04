@@ -1,7 +1,6 @@
 import torch, argparse, os, random
 from torch.utils.data import Dataset
 from torchvision import transforms, datasets
-from PIL import Image
 import numpy as np
 import SimCLRModel
 from tqdm import tqdm
@@ -63,12 +62,21 @@ def 有标签训练(命令行参数):
 
 
     分类模型 =SimCLRModel.有监督simCLRresnet50(2) # 生成模型，需传入分类数目
-    分类模型.load_state_dict(torch.load(命令行参数.pre_model, map_location=硬件设备),strict=False)
+    无标签训练权重路径 = "./Weight/model_stage1_epoch1.pth"
+    assert os.path.exists(无标签训练权重路径), "文件 {} 不存在.".format(无标签训练权重路径)
+    阶段1模型参数 = torch.load(无标签训练权重路径, map_location=硬件设备)  # 字典形式读取的权重
+    分类模型参数 = 分类模型.state_dict()  # 自己设计的模型参数字典
+
+    # 遍历阶段1保存模型的参数并赋值给阶段2模型中对应名称的参数
+    编码器参数 = {键: 值 for 键, 值 in 阶段1模型参数.items() if 键 in 分类模型参数.keys()}
+    分类模型参数.update(编码器参数)  # 更新我模型的参数，实际就是使用Res50模型参数
+    分类模型.load_state_dict(分类模型参数)  # 加载模型参数
+    分类模型.to(硬件设备)
     损失函数 = torch.nn.CrossEntropyLoss()
-    优化器 = torch.optim.Adam(分类模型.fc.parameters(), lr=1e-3, weight_decay=1e-6)
+    优化器 = torch.optim.Adam(分类模型.全连接.parameters(), lr=1e-3, weight_decay=1e-6)
 
     # 开始训练
-    for 当前训练周期 in range(1,命令行参数.max_epoch+1):
+    for 当前训练周期 in range(1,命令行参数.labeled_train_max_epoch+1):
         分类模型.train()
         全部损失=0
         # 每一批数据训练。enumerate可以在遍历元素的同时输出元素的索引
@@ -84,7 +92,7 @@ def 有标签训练(命令行参数):
 
             全部损失 += 训练损失.item()
             全部损失 += 训练损失.detach().item()
-            训练循环.set_description(f'训练迭代周期 [{当前训练周期}/{命令行参数.unlabeled_train_max_epoch}]')  # 设置进度条标题
+            训练循环.set_description(f'训练迭代周期 [{当前训练周期}/{命令行参数.labeled_train_max_epoch}]')  # 设置进度条标题
             训练循环.set_postfix(训练损失=训练损失.detach().item())  # 每一批训练都更新损失
 
         # 每一批数据训练完都会更新损失值
@@ -95,31 +103,28 @@ def 有标签训练(命令行参数):
             # todo 保存模型，按周期还是损失呢？
             torch.save(分类模型.state_dict(), os.path.join("Weight", 'model_stage2_epoch' + str(当前训练周期) + '.pth'))
 
-            # 测试模型效果
-            分类模型.eval()
+            分类模型.eval() # 测试模型效果
+            # 下方代码块不反向计算梯度
             with torch.no_grad():
-                print("batch", " " * 1, "top1 acc", " " * 1, "top5 acc")
-                全部损失, total_correct_1, total_correct_5, total_num = 0.0, 0.0, 0.0, 0
-                for batch, (data, target) in enumerate(train_data):
-                    data, target = data.to(DEVICE), target.to(DEVICE)
-                    pred = 分类模型(data)
+                print("当前批次", " " * 1, "top1 acc", " " * 1, "top5 acc")
+                全部损失, 全部准确率_top1, 全部数目 = 0.0, 0.0, 0
+                测试循环 = tqdm(enumerate(有标签训练数据), total=len(有标签训练数据), leave=True)
+                for 当前批次, (图像数据, 标签) in 测试循环:
+                    图像数据, 标签 = 图像数据.to(硬件设备), 标签.to(硬件设备)
+                    预测概率 = 分类模型(图像数据)
+                    全部数目 += 图像数据.size(0)
 
-                    total_num += data.size(0)
-                    prediction = torch.argsort(pred, dim=-1, descending=True)
-                    top1_acc = torch.sum((prediction[:, 0:1] == target.unsqueeze(dim=-1)).any(dim=-1).float()).item()
-                    top5_acc = torch.sum((prediction[:, 0:5] == target.unsqueeze(dim=-1)).any(dim=-1).float()).item()
-                    total_correct_1 += top1_acc
-                    total_correct_5 += top5_acc
+                    # 返回结果：按值降序对指定维度上的张量索引进行排序。所以排在第一个位置的索引对应的值就是最大的概率
+                    预测类别 = torch.argsort(预测概率, dim=-1, descending=True)
+                    # 预测类别[:, 0:1]可以令取出来结果排成一个列向量，
+                    top1_准确率 = torch.sum((预测类别[:, 0:1] == 标签.unsqueeze(dim=-1)).any(dim=-1).float()).item()
+                    全部准确率_top1 += top1_准确率
 
-                    print("  {:02}  ".format(batch + 1), " {:02.3f}%  ".format(top1_acc / data.size(0) * 100),
-                          "{:02.3f}%  ".format(top5_acc / data.size(0) * 100))
+                    print("  {:02}  ".format(当前批次 + 1), " {:02.3f}%  ".format(top1_准确率 / 图像数据.size(0) * 100))
 
-                print("all eval dataset:", "top1 acc: {:02.3f}%".format(total_correct_1 / total_num * 100),
-                          "top5 acc:{:02.3f}%".format(total_correct_5 / total_num * 100))
-                with open(os.path.join(配置.save_path, "stage2_top1_acc.txt"), "a") as f:
-                    f.write(str(total_correct_1 / total_num * 100) + " ")
-                with open(os.path.join(配置.save_path, "stage2_top5_acc.txt"), "a") as f:
-                    f.write(str(total_correct_5 / total_num * 100) + " ")
+                print("all eval dataset:", "top1 acc: {:02.3f}%".format(全部准确率_top1 / 全部数目 * 100))
+                with open(os.path.join("Weight", "stage2_top1_acc.txt"), "a") as f:
+                    f.write(str(全部准确率_top1 / 全部数目 * 100) + " ")
 
 
 if __name__ == '__main__':
@@ -129,7 +134,7 @@ if __name__ == '__main__':
     # 添加有标签数据训练时的参数
     命令行参数解析器.add_argument('--labeled_data_batch_size', default=2, type=int, help='')
     命令行参数解析器.add_argument('--labeled_train_max_epoch', default=5, type=int, help='')
-    命令行参数解析器.add_argument('--my_model', default=配置.pre_model, type=str, help='') # 加载无标签数据预训练的模型
+    # 命令行参数解析器.add_argument('--my_model', default=配置.pre_model, type=str, help='') # 加载无标签数据预训练的模型
 
     # 获取命令行传入的参数
     有标签训练命令行参数 = 命令行参数解析器.parse_args()
