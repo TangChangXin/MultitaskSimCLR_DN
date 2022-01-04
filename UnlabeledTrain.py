@@ -69,6 +69,7 @@ def 无标签训练(命令行参数):
         硬件设备 = torch.device("cpu")
     print("训练使用设备", 硬件设备)
 
+    # todo 只用了30张测试程序
     无标签训练数据集 = 无标签眼底图像数据集(文件路径='UnlabeledTrainDataset/OCTA_6M/Projection Maps/OCTA(FULL)', 图像变换=无标签数据随机图像变换["训练集"])
     # win可能多线程报错，num_workers最多和CPU的超线程数目相同，若报错设为0
     # 每次输出一个批次的数据
@@ -80,7 +81,6 @@ def 无标签训练(命令行参数):
     残差网络预训练权重路径 = "./weight/resnet50-19c8e357.pth"
     assert os.path.exists(残差网络预训练权重路径), "文件 {} 不存在.".format(残差网络预训练权重路径)
     残差模型参数 = torch.load(残差网络预训练权重路径, map_location=硬件设备) # 字典形式读取Res50的权重
-    # Resnet50Model
     simCLR模型参数 = 网络模型.state_dict() # 自己设计的模型参数字典
 
     # 我的模型只使用Res50模型从开头的第一个卷积层到最后一个全局自适应池化层作为编码器，所以遍历Res50的参数并赋值给我模型中对应名称的参数
@@ -129,7 +129,7 @@ if __name__ == '__main__':
     命令行参数解析器 = argparse.ArgumentParser(description='无标签数据训练 SimCLR')
 
     # 添加无标签数据训练时的参数
-    命令行参数解析器.add_argument('--unlabeled_data_batch_size', default=2, type=int, help='')
+    命令行参数解析器.add_argument('--unlabeled_data_batch_size', default=3, type=int, help='')
     命令行参数解析器.add_argument('--unlabeled_train_max_epoch', default=5, type=int, help='')
 
     # 获取命令行传入的参数
