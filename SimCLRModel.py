@@ -268,15 +268,24 @@ class SimCLR有标签微调阶段(torch.nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
-        x = self.f(x)
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        if self.include_top:
+            x = self.avgpool(x)
+        # 经过上方的运算，输出Resnet提取的特征
         feature = torch.flatten(x, start_dim=1)
         out = self.fc(feature)
         return out
 
 
-def 有监督simCLRresnet50():
-    # https://download.pytorch.org/models/resnet50-19c8e357.pth
-    return SimCLR有标签微调阶段(2, Bottleneck, [3, 4, 6, 3])
+def 有监督simCLRresnet50(类别数目):
+    return SimCLR有标签微调阶段(类别数目, Bottleneck, [3, 4, 6, 3])
 
 
 
