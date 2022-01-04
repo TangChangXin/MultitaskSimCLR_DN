@@ -127,7 +127,7 @@ class SimCLR无标签训练阶段(nn.Module):
                                nn.ReLU(inplace=True),
                                nn.Linear(512, 特征维度, bias=True))
 
-        # 权重初始化，resnet部分直接加载预训练权重，投影结构的权重如何初始化
+        # 投影结构的权重初始化
         for m in self.g.modules():
             # isinstance判断实参是否为同类型，认为子类和父类是同类型，考虑了继承关系
             if isinstance(m, nn.Conv2d):
@@ -237,13 +237,18 @@ class SimCLR有标签微调阶段(torch.nn.Module):
         self.layer2 = self._make_layer(block, 128, blocks_num[1], stride=2)
         self.layer3 = self._make_layer(block, 256, blocks_num[2], stride=2)
         self.layer4 = self._make_layer(block, 512, blocks_num[3], stride=2)
+        # todo 自己的模型需要修改
+        if self.include_top:
+            # 最后一个池化层输出直接送入投影模块,不需要接全连接层
+            self.avgpool = nn.AdaptiveAvgPool2d((1, 1))  # output size = (1, 1)
 
         # 写在上面这些层定义的后面，就可以实现对上面这些权重的冻结
         for 模型参数 in self.parameters():
             模型参数.requires_grad = False
 
         # 分类器
-        self.fc = nn.Linear(2048, 类别数目, bias=True)
+        全连接输入大小 = 2048 # 后续可能要改成自己模型适应的大小
+        self.全连接 = nn.Linear(全连接输入大小, 类别数目, bias=True)
 
     def _make_layer(self, block, channel, block_num, stride=1):
         downsample = None
@@ -276,11 +281,12 @@ class SimCLR有标签微调阶段(torch.nn.Module):
         x = self.layer2(x)
         x = self.layer3(x)
         x = self.layer4(x)
+        # todo 我的方法可能需要去掉最后一个全局池化层，目前先保留看看
         if self.include_top:
             x = self.avgpool(x)
         # 经过上方的运算，输出Resnet提取的特征
         feature = torch.flatten(x, start_dim=1)
-        out = self.fc(feature)
+        out = self.全连接(feature) # 输出分类预测结果
         return out
 
 
