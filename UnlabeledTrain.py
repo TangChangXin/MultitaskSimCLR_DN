@@ -73,7 +73,7 @@ def 无标签训练(命令行参数):
     # win可能多线程报错，num_workers最多和CPU的超线程数目相同，若报错设为0
     # 每次输出一个批次的数据，形式取决于读图像时
     # todo nw = min([os.cpu_count(), 命令行参数.batch_size if 命令行参数.batch_size > 1 else 0, 8])  # number of workers
-    训练数据 = torch.utils.data.DataLoader(无标签训练数据集, batch_size=命令行参数.unlabeled_data_batch_size, shuffle=True, num_workers=2, drop_last=True)
+    训练数据 = torch.utils.data.DataLoader(无标签训练数据集, batch_size=命令行参数.unlabeled_data_batch_size, shuffle=True, num_workers=2, drop_last=False, pin_memory=True)
 
     # 用于无标签数据训练的模型
     网络模型 = SimCLRModel.无监督simCLRresnet50()
@@ -91,6 +91,7 @@ def 无标签训练(命令行参数):
     训练损失函数 = SimCLRModel.对比损失函数().to(硬件设备) # 使用余弦相似度损失函数
     优化器 = torch.optim.Adam(网络模型.parameters(), lr=1e-3, weight_decay=1e-6)
 
+    # 开始训练
     for 当前训练周期 in range(1, 命令行参数.unlabeled_train_max_epoch + 1):
         网络模型.train()  # 开始训练
         全部损失 = 0
@@ -116,7 +117,7 @@ def 无标签训练(命令行参数):
         # 参数'a',打开一个文件用于追加。若该文件已存在，文件指针将会放在文件的结尾，新的内容将会被写入到已有内容之后。若该文件不存在，创建新文件进行写入。
         with open(os.path.join("Weight", "stage1_loss.txt"), 'a') as f:
             # 将损失写入文件并用逗号分隔
-            f.write(str(全部损失 / len(无标签训练数据集) * 命令行参数.unlabeled_data_batch_size) + ", ")
+            f.write(str(全部损失 / len(无标签训练数据集) * 命令行参数.unlabeled_data_batch_size) + "，")
 
         if 当前训练周期 % 1 == 0:
             # todo 保存模型，按周期还是损失呢？
