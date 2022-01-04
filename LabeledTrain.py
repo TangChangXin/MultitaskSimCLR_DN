@@ -53,54 +53,56 @@ def 有标签训练(命令行参数):
         硬件设备 = torch.device("cpu")
     print("训练使用设备", 硬件设备)
 
-    # load dataset for train and eval
-    train_dataset = CIFAR10(root='dataset', train=True, transform=配置.train_transform, download=True)
-    train_data = DataLoader(train_dataset, batch_size=命令行参数.batch_size, shuffle=True, num_workers=16, pin_memory=True)
-    eval_dataset = CIFAR10(root='dataset', train=False, transform=配置.test_transform, download=True)
-    eval_data = DataLoader(eval_dataset, batch_size=命令行参数.batch_size, shuffle=False, num_workers=16, pin_memory=True)
-
+    # 加载训练数据集和测试数据集
     有标签训练数据集 = datasets.ImageFolder(root="LabeledDataset/Train", transform=随机图像变换["测试集"])
     # win可能多线程报错，num_workers最多和CPU的超线程数目相同，若报错设为0
-    # todo nw = min([os.cpu_count(), 命令行参数.batch_size if 命令行参数.batch_size > 1 else 0, 8])  # number of workers
-    有标签训练数据 = torch.utils.data.DataLoader(有标签训练数据集, batch_size=命令行参数.labeled_data_batch_size, shuffle=True, num_workers=0)
+    # todo 线程数 = min([os.cpu_count(), 命令行参数.batch_size if 命令行参数.batch_size > 1 else 0, 8])  # number of workers
+    有标签训练数据 = torch.utils.data.DataLoader(有标签训练数据集, batch_size=命令行参数.labeled_data_batch_size, shuffle=True, num_workers=0, pin_memory=True)
+    有标签测试数据集 = datasets.ImageFolder(root="LabeledDataset/Validate", transform=随机图像变换["测试集"])
+    有标签测试数据 = torch.utils.data.DataLoader(有标签测试数据集, batch_size=命令行参数.labeled_data_batch_size, shuffle=True, num_workers=0, pin_memory=True)
 
 
+    分类模型 =SimCLRModel.有监督simCLRresnet50(2) # 生成模型，需传入分类数目
+    分类模型.load_state_dict(torch.load(命令行参数.pre_model, map_location=硬件设备),strict=False)
+    损失函数 = torch.nn.CrossEntropyLoss()
+    优化器 = torch.optim.Adam(分类模型.fc.parameters(), lr=1e-3, weight_decay=1e-6)
 
-    # todo 注意修改模型
-    model =SimCLRModel.有监督simCLRresnet50()
-    model.load_state_dict(torch.load(命令行参数.pre_model, map_location='cpu'),strict=False)
-    loss_criterion = torch.nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.fc.parameters(), lr=1e-3, weight_decay=1e-6)
+    # 开始训练
+    for 当前训练周期 in range(1,命令行参数.max_epoch+1):
+        分类模型.train()
+        全部损失=0
+        # 每一批数据训练。enumerate可以在遍历元素的同时输出元素的索引
+        训练循环 = tqdm(enumerate(有标签训练数据), total=len(有标签训练数据), leave=True)
+        for 当前批次, (图像数据, 标签) in 训练循环:
+            图像数据, 标签 = 图像数据.to(硬件设备), 标签.to(硬件设备)
+            预测值 = 分类模型(图像数据)
 
-    os.makedirs(配置.save_path, exist_ok=True)
-    for epoch in range(1,命令行参数.max_epoch+1):
-        model.train()
-        total_loss=0
-        for batch, (data, target) in enumerate(train_data):
-            data, target = data.to(DEVICE), target.to(DEVICE)
-            pred = model(data)
+            训练损失 = 损失函数(预测值, 标签)
+            优化器.zero_grad()
+            训练损失.backward()
+            优化器.step()
 
-            loss = loss_criterion(pred, target)
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+            全部损失 += 训练损失.item()
+            全部损失 += 训练损失.detach().item()
+            训练循环.set_description(f'训练迭代周期 [{当前训练周期}/{命令行参数.unlabeled_train_max_epoch}]')  # 设置进度条标题
+            训练循环.set_postfix(训练损失=训练损失.detach().item())  # 每一批训练都更新损失
 
-            total_loss += loss.item()
+        # 每一批数据训练完都会更新损失值
+        with open(os.path.join("Weight", "stage2_loss.txt"), "a") as f:
+            f.write(str(全部损失 / len(有标签训练数据集) * 命令行参数.labeled_data_batch_size) + "，")
 
-        print("epoch",epoch,"loss:", total_loss / len(train_dataset)*命令行参数.batch_size)
-        with open(os.path.join(配置.save_path, "stage2_loss.txt"), "a") as f:
-            f.write(str(total_loss / len(train_dataset)*命令行参数.batch_size) + " ")
+        if 当前训练周期 % 5==0:
+            # todo 保存模型，按周期还是损失呢？
+            torch.save(分类模型.state_dict(), os.path.join("Weight", 'model_stage2_epoch' + str(当前训练周期) + '.pth'))
 
-        if epoch % 5==0:
-            torch.save(model.state_dict(), os.path.join(配置.save_path, 'model_stage2_epoch' + str(epoch) + '.pth'))
-
-            model.eval()
+            # 测试模型效果
+            分类模型.eval()
             with torch.no_grad():
                 print("batch", " " * 1, "top1 acc", " " * 1, "top5 acc")
-                total_loss, total_correct_1, total_correct_5, total_num = 0.0, 0.0, 0.0, 0
+                全部损失, total_correct_1, total_correct_5, total_num = 0.0, 0.0, 0.0, 0
                 for batch, (data, target) in enumerate(train_data):
                     data, target = data.to(DEVICE), target.to(DEVICE)
-                    pred = model(data)
+                    pred = 分类模型(data)
 
                     total_num += data.size(0)
                     prediction = torch.argsort(pred, dim=-1, descending=True)
