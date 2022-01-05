@@ -91,8 +91,8 @@ def 有标签训练(命令行参数):
 
             全部损失 += 训练损失.item()
             全部损失 += 训练损失.detach().item()
-            训练循环.set_description(f'训练迭代周期 [{当前训练周期}/{命令行参数.labeled_train_max_epoch}]')  # 设置进度条标题
-            训练循环.set_postfix(训练损失=训练损失.detach().item())  # 每一批训练都更新损失
+            训练循环.desc = "训练迭代周期 [{}/{}] 损失：{:.3f}".format(当前训练周期, 命令行参数.labeled_train_max_epoch,
+                                                          训练损失.detach().item())  # 设置进度条描述
 
         # 每一批数据训练完都会更新损失值
         with open(os.path.join("Weight", "stage2_loss.txt"), "a") as f:
@@ -108,27 +108,22 @@ def 有标签训练(命令行参数):
             for 当前批次, (图像数据, 标签) in 测试循环:
                 图像数据, 标签 = 图像数据.to(硬件设备), 标签.to(硬件设备)
                 测试集预测概率 = 分类模型(图像数据)
-                测试集图像数量 += 图像数据.size(0) # 图像数据BCHW
-
-                # 返回结果：按值降序对指定维度上的张量索引进行排序。所以排在第一个位置的索引对应的值就是最大的概率
-                预测类别 = torch.argsort(测试集预测概率, dim=-1, descending=True)
-                标签值 = 标签
-                # 预测类别[:, 0:1]可以令取出来结果排成一个列向量，
-                概率最大类别 = 预测类别[:, 0:1]
-                标签升维 = 标签.unsqueeze(dim=-1)
-                当前批次预测正确的数目 = torch.sum((预测类别[:, 0:1] == 标签.unsqueeze(dim=-1)).any(dim=-1).float()).item()
+                测试集图像数量 += 图像数据.size(0)  # 图像数据BCHW
+                # torch.max(a,1)返回行最大值和列索引。结果中的第二个张量是列索引
+                预测类别 = torch.max(测试集预测概率, dim=1)[1]
+                当前批次预测正确的数目 = torch.eq(预测类别, 标签).sum().item()
                 测试正确的总数目 += 当前批次预测正确的数目
+                训练循环.desc = "测试迭代周期 [{}/{}]".format(当前训练周期, 命令行参数.labeled_train_max_epoch)  # 设置进度条描述
 
-                print("  {:02}  ".format(当前批次 + 1), " {:02.3f}%  ".format(当前批次预测正确的数目 / 图像数据.size(0) * 100))
+                # print("  {:02}  ".format(当前批次 + 1), " {:02.3f}%  ".format(当前批次预测正确的数目 / 图像数据.size(0) * 100))
 
-            print("准确率:", "top1 acc: {:02.3f}%".format(测试正确的总数目 / 测试集图像数量 * 100))
-            with open(os.path.join("Weight", "stage2_top1_acc.txt"), "a") as f:
-                f.write(str(测试正确的总数目 / 测试集图像数量 * 100) + " ")
+        print("测试准确率:{:02.3f}%".format(测试正确的总数目 / 测试集图像数量 * 100))
+        with open(os.path.join("Weight", "stage2_top1_acc.txt"), "a") as f:
+            f.write(str(测试正确的总数目 / 测试集图像数量 * 100) + " ")
 
         if 当前训练周期 % 5 == 0:
             # todo 保存模型，按周期还是损失呢？
             torch.save(分类模型.state_dict(), os.path.join("Weight", 'model_stage2_epoch' + str(当前训练周期) + '.pth'))
-
 
 
 if __name__ == '__main__':
