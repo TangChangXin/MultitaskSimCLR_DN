@@ -6,6 +6,7 @@ import SimCLRModel
 from tqdm import tqdm
 from torch.backends.cudnn import deterministic
 
+
 随机图像变换 = {
     "训练集": transforms.Compose([
         transforms.RandomResizedCrop(32),  # 随机选取图像中的某一部分然后再缩放至指定大小
@@ -74,56 +75,48 @@ def 有标签训练(命令行参数):
     损失函数 = torch.nn.CrossEntropyLoss()
     优化器 = torch.optim.Adam(分类模型.全连接.parameters(), lr=1e-3, weight_decay=1e-6)
 
+    最高测试准确率 = 0.0
     # 开始训练
     for 当前训练周期 in range(1, 命令行参数.labeled_train_max_epoch + 1):
         分类模型.train()
-        全部损失 = 0
+        当前周期全部损失 = 0.0
         # 每一批数据训练。enumerate可以在遍历元素的同时输出元素的索引
         训练循环 = tqdm(enumerate(有标签训练数据), total=len(有标签训练数据), leave=True)
         for 当前批次, (图像数据, 标签) in 训练循环:
             图像数据, 标签 = 图像数据.to(硬件设备), 标签.to(硬件设备)
             训练集预测概率 = 分类模型(图像数据)
-
-            训练损失 = 损失函数(训练集预测概率, 标签)
+            训练损失 = 损失函数(训练集预测概率, 标签) # 每一批的训练损失
             优化器.zero_grad()
             训练损失.backward()
             优化器.step()
-
-            全部损失 += 训练损失.item()
-            全部损失 += 训练损失.detach().item()
-            训练循环.desc = "训练迭代周期 [{}/{}] 损失：{:.3f}".format(当前训练周期, 命令行参数.labeled_train_max_epoch,
+            当前周期全部损失 += 训练损失.detach().item()
+            训练循环.desc = "训练迭代周期 [{}/{}] 当前损失：{:.8f}".format(当前训练周期, 命令行参数.labeled_train_max_epoch,
                                                           训练损失.detach().item())  # 设置进度条描述
 
-        # 每一批数据训练完都会更新损失值
+        # 记录每个周期的平均每批损失值
         with open(os.path.join("Weight", "stage2_loss.txt"), "a") as f:
-            f.write(str(全部损失 / len(有标签训练数据集) * 命令行参数.labeled_data_batch_size) + "，")
+            f.write(str(当前周期全部损失 / len(有标签训练数据集) * 命令行参数.labeled_data_batch_size) + "\n")
 
         分类模型.eval()  # 每一批数据训练完成后测试模型效果
-        准确率 = 0.0
+        测试正确的总数目 = 0
         # 下方代码块不反向计算梯度
         with torch.no_grad():
-            # print("当前批次", " " * 1, "top1 acc", " " * 1, "top5 acc")
-            全部损失, 测试正确的总数目, 测试集图像数量 = 0.0, 0.0, 0
             测试循环 = tqdm(enumerate(有标签测试数据), total=len(有标签测试数据), leave=True)
             for 当前批次, (图像数据, 标签) in 测试循环:
                 图像数据, 标签 = 图像数据.to(硬件设备), 标签.to(硬件设备)
                 测试集预测概率 = 分类模型(图像数据)
-                测试集图像数量 += 图像数据.size(0)  # 图像数据BCHW
                 # torch.max(a,1)返回行最大值和列索引。结果中的第二个张量是列索引
                 预测类别 = torch.max(测试集预测概率, dim=1)[1]
-                当前批次预测正确的数目 = torch.eq(预测类别, 标签).sum().item()
-                测试正确的总数目 += 当前批次预测正确的数目
-                训练循环.desc = "测试迭代周期 [{}/{}]".format(当前训练周期, 命令行参数.labeled_train_max_epoch)  # 设置进度条描述
+                测试正确的总数目 += torch.eq(预测类别, 标签).sum().item() # 累加每个批次预测正确的数目
+                测试循环.desc = "测试迭代周期 [{}/{}]".format(当前训练周期, 命令行参数.labeled_train_max_epoch)  # 设置进度条描述
+        当前迭代周期测试准确率 = 测试正确的总数目 / len(有标签测试数据集)
+        print("[迭代周期 %d] 平均训练损失: %.8f  测试准确率: %.4f" % (当前训练周期, 当前周期全部损失 / len(有标签训练数据集) * 命令行参数.labeled_data_batch_size, 当前迭代周期测试准确率))
+        with open(os.path.join("Weight", "TestAccuracy .txt"), "a") as f:
+            f.write(str(当前迭代周期测试准确率) + "\n")
 
-                # print("  {:02}  ".format(当前批次 + 1), " {:02.3f}%  ".format(当前批次预测正确的数目 / 图像数据.size(0) * 100))
-
-        print("测试准确率:{:02.3f}%".format(测试正确的总数目 / 测试集图像数量 * 100))
-        with open(os.path.join("Weight", "stage2_top1_acc.txt"), "a") as f:
-            f.write(str(测试正确的总数目 / 测试集图像数量 * 100) + " ")
-
-        if 当前训练周期 % 5 == 0:
-            # todo 保存模型，按周期还是损失呢？
-            torch.save(分类模型.state_dict(), os.path.join("Weight", 'model_stage2_epoch' + str(当前训练周期) + '.pth'))
+        if 当前迭代周期测试准确率 > 最高测试准确率:
+            最高测试准确率 = 当前迭代周期测试准确率
+            torch.save(分类模型.state_dict(), os.path.join("Weight", "model_stage2_epoch" + str(当前训练周期) + ".pth"))
 
 
 if __name__ == '__main__':
