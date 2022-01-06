@@ -62,7 +62,7 @@ def 有标签训练(命令行参数):
                                           num_workers=0, pin_memory=True)
 
     分类模型 = SimCLRModel.有监督simCLRresnet50(2)  # 生成模型，需传入分类数目
-    无标签训练权重路径 = "./Weight/model_stage1_epoch1.pth"
+    无标签训练权重路径 = 命令行参数.unlabeled_model_path
     assert os.path.exists(无标签训练权重路径), "文件 {} 不存在.".format(无标签训练权重路径)
     阶段1模型参数 = torch.load(无标签训练权重路径, map_location=硬件设备)  # 字典形式读取的权重
     分类模型参数 = 分类模型.state_dict()  # 自己设计的模型参数字典
@@ -114,9 +114,10 @@ def 有标签训练(命令行参数):
         with open(os.path.join("Weight", "TestAccuracy .txt"), "a") as f:
             f.write(str(当前迭代周期测试准确率) + "\n")
 
+        # 以最高测试准确率作为模型保存的标准
         if 当前迭代周期测试准确率 > 最高测试准确率:
             最高测试准确率 = 当前迭代周期测试准确率
-            torch.save(分类模型.state_dict(), os.path.join("Weight", "model_stage2_epoch" + str(当前训练周期) + ".pth"))
+            torch.save(分类模型.state_dict(), os.path.join("Weight", "LabeledModel" + ".pth"))
 
 
 if __name__ == '__main__':
@@ -124,8 +125,9 @@ if __name__ == '__main__':
     命令行参数解析器 = argparse.ArgumentParser(description="无标签训练 SimCLR")
 
     # 添加有标签数据训练时的参数
-    命令行参数解析器.add_argument('--labeled_data_batch_size', default=3, type=int, help='')
-    命令行参数解析器.add_argument('--labeled_train_max_epoch', default=2, type=int, help='')
+    命令行参数解析器.add_argument("--unlabeled_model_path", default="./Weight/model_stage1_epoch1.pth", type=str, help='输入无标签训练模型的路径')
+    命令行参数解析器.add_argument("--labeled_data_batch_size", default=3, type=int, help='有标签数据训练时的批量大小')
+    命令行参数解析器.add_argument("--labeled_train_max_epoch", default=2, type=int, help='有标签训练的最大迭代周期')
     # 命令行参数解析器.add_argument('--my_model', default=配置.pre_model, type=str, help='') # 加载无标签数据预训练的模型
 
     # 获取命令行传入的参数
