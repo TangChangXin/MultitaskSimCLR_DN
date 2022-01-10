@@ -9,7 +9,7 @@ from torchsummary import summary
 class BasicBlock(nn.Module):
     # 用于18层和34层的残差块
     expansion = 1
-    def __init__(self, in_channel, out_channel, stride=1, downsample=None, **kwargs):
+    def __init__(self, in_channel, out_channel, stride=1, downsample=None):
         super(BasicBlock, self).__init__()
         self.conv1 = nn.Conv2d(in_channels=in_channel, out_channels=out_channel,
                                kernel_size=3, stride=stride, padding=1, bias=False)
@@ -297,7 +297,7 @@ def 有监督simCLRresnet50(类别数目):
 
 
 # 对比损失函数，输出结果之间的余弦相似性最大化
-class 对比损失函数(torch.nn.Module):
+class 对比损失函数(nn.Module):
     def __init__(self):
         super(对比损失函数, self).__init__()
 
