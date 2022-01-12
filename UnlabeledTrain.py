@@ -6,19 +6,7 @@ import numpy as np
 import SimCLRModel
 from tqdm import tqdm
 from torch.backends.cudnn import deterministic
-
-
-无标签数据随机图像变换 = {
-    "训练集": transforms.Compose([
-        transforms.RandomResizedCrop(32),  # 随机选取图像中的某一部分然后再缩放至指定大小
-        transforms.RandomHorizontalFlip(p=0.5),  # 随机水平翻转
-        # 修改亮度、对比度和饱和度
-        transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),  # 随机应用添加的各种图像变换
-        transforms.RandomGrayscale(p=0.2),  # todo 随机灰度化，但我本来就是灰度图啊
-        transforms.ToTensor(),  # 转换为张量且维度是[C, H, W]
-        # 三通道归一化
-        transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])]),
-}
+import LabeledTrain
 
 
 class 无标签眼底图像数据集(torch.utils.data.Dataset):
@@ -70,7 +58,7 @@ def 无标签训练(命令行参数):
     print("训练使用设备", 硬件设备)
 
     # todo 只用了30张测试程序
-    无标签训练数据集 = 无标签眼底图像数据集(文件路径='UnlabeledTrainDataset/OCTA_6M/Projection Maps/OCTA(FULL)', 图像变换=无标签数据随机图像变换["训练集"])
+    无标签训练数据集 = 无标签眼底图像数据集(文件路径='UnlabeledTrainDataset/OCTA_6M/Projection Maps/OCTA(FULL)', 图像变换=LabeledTrain.随机图像变换["训练集"])
     # win可能多线程报错，num_workers最多和CPU的超线程数目相同，若报错设为0
     # 每次输出一个批次的数据
     # todo 线程数 = min([os.cpu_count(), 命令行参数.batch_size if 命令行参数.batch_size > 1 else 0, 8])  # number of workers
