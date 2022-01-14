@@ -330,9 +330,9 @@ if __name__ == "__main__":
     无监督训练模型 = 无监督simCLRresnet50()
     无监督训练模型.to(torch.device('cuda:0'))
     # print(model)
-    # summary(无监督训练模型, input_size=(3, 112, 112), batch_size=4)
-    # for name, module in 无监督训练模型.named_children():
-    #     print(name,module)
+    summary(无监督训练模型, input_size=(3, 112, 112), batch_size=4)
+    for name, module in 无监督训练模型.named_children():
+        print(name,module)
 
     # for module in 无监督训练模型.g.modules():
     #     if isinstance(module, nn.Linear):
@@ -352,6 +352,6 @@ if __name__ == "__main__":
     #     print(参数)
 
 
-    有监督微调模型 = SimCLR有标签微调阶段(2, Bottleneck, [3, 4, 6, 3])
-    for 参数 in 有监督微调模型.named_parameters():
-        print(参数[0], '\t', 参数[1].requires_grad)
+    # 有监督微调模型 = SimCLR有标签微调阶段(2, Bottleneck, [3, 4, 6, 3])
+    # for 参数 in 有监督微调模型.named_parameters():
+    #     print(参数[0], '\t', 参数[1].requires_grad)
