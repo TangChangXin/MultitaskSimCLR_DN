@@ -118,7 +118,7 @@ if __name__ == '__main__':
 
     # 添加无标签数据训练时的参数
     命令行参数解析器.add_argument('--unlabeled_data_batch_size', default=3, type=int, help='')
-    命令行参数解析器.add_argument('--unlabeled_train_max_epoch', default=5, type=int, help='')
+    命令行参数解析器.add_argument('--unlabeled_train_max_epoch', default=3, type=int, help='')
 
     # 获取命令行传入的参数
     无标签训练命令行参数 = 命令行参数解析器.parse_args()
