@@ -4,4 +4,4 @@ Train和Validate文件夹中需要按照不同类别分别创建保存不同类�
 #无标签数据
 直接存放OCTA-500的数据
 #模型权重
-ResNet预训练权重和自己的权重都保存在Weight中
+ResNet50预训练权重和自己的权重都保存在Weight中
