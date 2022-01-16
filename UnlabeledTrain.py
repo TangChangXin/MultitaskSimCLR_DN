@@ -6,7 +6,7 @@ import numpy as np
 import SimCLRModel
 from tqdm import tqdm
 from torch.backends.cudnn import deterministic
-import LabeledTrain
+from LabeledTrain import 随机图像变换
 
 
 class 无标签眼底图像数据集(torch.utils.data.Dataset):
@@ -56,16 +56,17 @@ def 无标签训练(命令行参数):
         硬件设备 = torch.device("cpu")
     print("训练使用设备", 硬件设备)
 
-    # todo 只用了30张测试程序
-    无标签训练数据集 = 无标签眼底图像数据集(文件路径='UnlabeledTrainDataset/OCTA_6M/Projection Maps/OCTA(FULL)', 图像变换=LabeledTrain.随机图像变换["训练集"])
+    无标签训练数据集 = 无标签眼底图像数据集(文件路径='UnlabeledTrainDataset/OCTA_6M/Projection Maps/OCTA(FULL)', 图像变换=随机图像变换["训练集"])
     # win可能多线程报错，num_workers最多和CPU的超线程数目相同，若报错设为0
     # 每次输出一个批次的数据
-    # todo 线程数 = min([os.cpu_count(), 命令行参数.batch_size if 命令行参数.batch_size > 1 else 0, 8])  # number of workers
-    训练数据 = torch.utils.data.DataLoader(无标签训练数据集, batch_size=命令行参数.unlabeled_data_batch_size, shuffle=True, num_workers=2, drop_last=False, pin_memory=True)
+
+    # todo 如果维度报错注意修改drop_last
+    训练数据 = torch.utils.data.DataLoader(无标签训练数据集, batch_size=命令行参数.unlabeled_data_batch_size, shuffle=True, num_workers=8, drop_last=False, pin_memory=True)
+    # 训练数据 = torch.utils.data.DataLoader(无标签训练数据集, batch_size=命令行参数.unlabeled_data_batch_size, shuffle=True, num_workers=4, drop_last=False, pin_memory=True)
 
     # 用于无标签数据训练的模型
     网络模型 = SimCLRModel.无监督simCLRresnet50()
-    残差网络预训练权重路径 = "./weight/resnet50-19c8e357.pth"
+    残差网络预训练权重路径 = "Weight/resnet50-19c8e357.pth"
     assert os.path.exists(残差网络预训练权重路径), "文件 {} 不存在.".format(残差网络预训练权重路径)
     残差模型参数 = torch.load(残差网络预训练权重路径, map_location=硬件设备) # 字典形式读取Res50的权重
     simCLR模型参数 = 网络模型.state_dict() # 自己设计的模型参数字典
@@ -84,7 +85,7 @@ def 无标签训练(命令行参数):
         网络模型.train()  # 开始训练
         全部损失 = 0
         # 每一批数据训练。enumerate可以在遍历元素的同时输出元素的索引
-        训练循环 = tqdm(enumerate(训练数据), total=len(训练数据), leave=True)
+        训练循环 = tqdm(enumerate(训练数据), total=len(训练数据),ncols=150, leave=True)
         for 训练批次, (图像变换1, 图像变换2) in 训练循环:
             图像变换1, 图像变换2 = 图像变换1.to(硬件设备), 图像变换2.to(硬件设备)
 
@@ -105,15 +106,17 @@ def 无标签训练(命令行参数):
         # 参数'a',打开一个文件用于追加。若该文件已存在，文件指针将会放在文件的结尾，新的内容将会被写入到已有内容之后。若该文件不存在，创建新文件进行写入。
         with open(os.path.join("Weight", "stage1_loss.txt"), 'a') as f:
             # 将损失写入文件并用逗号分隔
-            f.write(str(全部损失 / len(无标签训练数据集) * 命令行参数.unlabeled_data_batch_size) + "，")
+            f.write(str(全部损失 / len(无标签训练数据集) * 命令行参数.unlabeled_data_batch_size) + '\n')
 
         if 全部损失 < 最佳损失:
             最佳损失 = 全部损失
-            torch.save(网络模型.state_dict(), os.path.join("Weight", "Best_model_stage1_epoch" + str(当前训练周期) + ".pth"))
+            torch.save(网络模型.state_dict(), os.path.join("Weight", "Best_model" + ".pth"))
 
+        '''
         if 当前训练周期 % 50 == 0:
             # 每50周期保存一次模型
             torch.save(网络模型.state_dict(), os.path.join("Weight", "model_stage1_epoch" + str(当前训练周期) + ".pth"))
+        '''
 
 
 if __name__ == '__main__':
@@ -121,8 +124,8 @@ if __name__ == '__main__':
     命令行参数解析器 = argparse.ArgumentParser(description='无标签数据训练 SimCLR')
 
     # 添加无标签数据训练时的参数
-    命令行参数解析器.add_argument('--unlabeled_data_batch_size', default=128, type=int, help='')
-    命令行参数解析器.add_argument('--unlabeled_train_max_epoch', default=200, type=int, help='')
+    命令行参数解析器.add_argument('--unlabeled_data_batch_size', default=100, type=int, help='')
+    命令行参数解析器.add_argument('--unlabeled_train_max_epoch', default=6000, type=int, help='')
 
     # 获取命令行传入的参数
     无标签训练命令行参数 = 命令行参数解析器.parse_args()
