@@ -30,7 +30,6 @@ class 无标签眼底图像数据集(torch.utils.data.Dataset):
         图像变换结果2 = self.图像变换(图像)
         return 图像变换结果1, 图像变换结果2
 
-
 # 第一阶段无标签训练
 def 无标签训练(命令行参数):
     #  init seed 初始化随机种子
