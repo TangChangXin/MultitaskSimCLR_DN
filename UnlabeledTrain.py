@@ -77,9 +77,10 @@ def 无标签训练(命令行参数):
     网络模型.load_state_dict(simCLR模型参数) # 加载模型参数
     网络模型.to(硬件设备)
     训练损失函数 = SimCLRModel.对比损失函数().to(硬件设备) # 使用余弦相似度损失函数
-    优化器 = torch.optim.Adam(网络模型.parameters(), lr=1e-3, weight_decay=1e-6)
+    优化器 = torch.optim.Adam(网络模型.parameters(), lr=1e-4, weight_decay=1e-6)
 
     # 开始训练
+    最佳损失 = float("inf") # 初始无穷大
     for 当前训练周期 in range(1, 命令行参数.unlabeled_train_max_epoch + 1):
         网络模型.train()  # 开始训练
         全部损失 = 0
@@ -107,8 +108,12 @@ def 无标签训练(命令行参数):
             # 将损失写入文件并用逗号分隔
             f.write(str(全部损失 / len(无标签训练数据集) * 命令行参数.unlabeled_data_batch_size) + "，")
 
-        if 当前训练周期 % 1 == 0:
-            # todo 保存模型，按周期还是损失呢？
+        if 全部损失 < 最佳损失:
+            最佳损失 = 全部损失
+            torch.save(网络模型.state_dict(), os.path.join("Weight", "Best_model_stage1_epoch" + str(当前训练周期) + ".pth"))
+
+        if 当前训练周期 % 50 == 0:
+            # 每50周期保存一次模型
             torch.save(网络模型.state_dict(), os.path.join("Weight", "model_stage1_epoch" + str(当前训练周期) + ".pth"))
 
 
@@ -117,8 +122,8 @@ if __name__ == '__main__':
     命令行参数解析器 = argparse.ArgumentParser(description='无标签数据训练 SimCLR')
 
     # 添加无标签数据训练时的参数
-    命令行参数解析器.add_argument('--unlabeled_data_batch_size', default=3, type=int, help='')
-    命令行参数解析器.add_argument('--unlabeled_train_max_epoch', default=3, type=int, help='')
+    命令行参数解析器.add_argument('--unlabeled_data_batch_size', default=128, type=int, help='')
+    命令行参数解析器.add_argument('--unlabeled_train_max_epoch', default=200, type=int, help='')
 
     # 获取命令行传入的参数
     无标签训练命令行参数 = 命令行参数解析器.parse_args()
