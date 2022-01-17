@@ -7,23 +7,6 @@ from tqdm import tqdm
 from torch.backends.cudnn import deterministic
 
 
-随机图像变换 = {
-    "训练集": transforms.Compose([
-        transforms.RandomResizedCrop(32),  # 随机选取图像中的某一部分然后再缩放至指定大小
-        transforms.RandomHorizontalFlip(p=0.5),  # 随机水平翻转
-        # 修改亮度、对比度和饱和度
-        transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),  # 随机应用添加的各种图像变换
-        transforms.RandomGrayscale(p=0.2),  # todo 随机灰度化，但我本来就是灰度图啊
-        transforms.ToTensor(),  # 转换为张量且维度是[C, H, W]
-        # 三通道归一化
-        transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])]),
-    "测试集": transforms.Compose([
-        transforms.ToTensor(),
-        # 三通道归一化
-        transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])])
-}
-
-
 def 有标签训练(命令行参数):
     #  init seed 初始化随机种子
     全部随机数种子 = 222
@@ -51,6 +34,23 @@ def 有标签训练(命令行参数):
         硬件设备 = torch.device("cpu")
     print("训练使用设备", 硬件设备)
 
+    随机图像变换 = {
+        "训练集": transforms.Compose([
+            # TODO 选择合适的图像大小。是否需要随机高斯滤波
+            transforms.RandomResizedCrop(命令行参数.labeled_train_resize),  # 随机选取图像中的某一部分然后再缩放至指定大小
+            transforms.RandomHorizontalFlip(p=0.5),  # 随机水平翻转
+            # 修改亮度、对比度和饱和度
+            transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),  # 随机应用添加的各种图像变换
+            transforms.RandomGrayscale(p=0.2),  # todo 随机灰度化，但我本来就是灰度图啊
+            transforms.ToTensor(),  # 转换为张量且维度是[C, H, W]
+            # 三通道归一化
+            transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])]),
+        "测试集": transforms.Compose([
+            transforms.ToTensor(),
+            # 三通道归一化
+            transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])])
+    }
+
     # 加载训练数据集和测试数据集
     有标签训练数据集 = datasets.ImageFolder(root="LabeledDataset/Train", transform=随机图像变换["测试集"])
     # win可能多线程报错，num_workers最多和CPU的超线程数目相同，若报错设为0
@@ -63,7 +63,7 @@ def 有标签训练(命令行参数):
 
     分类模型 = SimCLRModel.有监督simCLRresnet50(2)  # 生成模型，需传入分类数目
     无标签训练权重路径 = 命令行参数.unlabeled_model_path
-    assert os.path.exists(无标签训练权重路径), "文件 {} 不存在.".format(无标签训练权重路径)
+    assert os.path.exists(无标签训练权重路径), "自监督模型权重{}不存在.".format(无标签训练权重路径)
     阶段1模型参数 = torch.load(无标签训练权重路径, map_location=硬件设备)  # 字典形式读取的权重
     分类模型参数 = 分类模型.state_dict()  # 自己设计的模型参数字典
 
@@ -125,10 +125,11 @@ if __name__ == '__main__':
     命令行参数解析器 = argparse.ArgumentParser(description="无标签训练 SimCLR")
 
     # 添加有标签数据训练时的参数
-    命令行参数解析器.add_argument("--unlabeled_model_path", default="./Weight/model_stage1_epoch1.pth", type=str, help='输入无标签训练模型的路径')
-    命令行参数解析器.add_argument("--labeled_data_batch_size", default=3, type=int, help='有标签数据训练时的批量大小')
-    命令行参数解析器.add_argument("--labeled_train_max_epoch", default=2, type=int, help='有标签训练的最大迭代周期')
-    # 命令行参数解析器.add_argument('--my_model', default=配置.pre_model, type=str, help='') # 加载无标签数据预训练的模型
+    命令行参数解析器.add_argument('--unlabeled_model_path', default="Weight/Best_model.pth", type=str, help="输入无标签训练模型的路径")
+    命令行参数解析器.add_argument('--labeled_data_batch_size', default=3, type=int, help="有标签数据训练时的批量大小")
+    命令行参数解析器.add_argument('--labeled_train_max_epoch', default=2, type=int, help="有标签训练的最大迭代周期")
+    命令行参数解析器.add_argument('--labeled_train_resize', default=300, type=int, help="随机缩放图像的大小")
+
 
     # 获取命令行传入的参数
     有标签训练命令行参数 = 命令行参数解析器.parse_args()
