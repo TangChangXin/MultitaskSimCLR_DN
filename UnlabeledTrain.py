@@ -6,7 +6,14 @@ import numpy as np
 import SimCLRModel
 from tqdm import tqdm
 from torch.backends.cudnn import deterministic
-from LabeledTrain import 随机图像变换
+
+
+# 设置一个参数解析器
+命令行参数解析器 = argparse.ArgumentParser(description='无标签数据训练 SimCLR')
+# 添加无标签数据训练时的参数
+命令行参数解析器.add_argument('--unlabeled_data_batch_size', default=120, type=int, help="无标签数据训练时的批量大小")
+命令行参数解析器.add_argument('--unlabeled_train_max_epoch', default=6000, type=int, help="无标签训练的最大迭代周期")
+命令行参数解析器.add_argument('--unlabeled_train_resize', default=224, type=int, help="随机缩放图像的大小")
 
 
 class 无标签眼底图像数据集(torch.utils.data.Dataset):
@@ -29,6 +36,46 @@ class 无标签眼底图像数据集(torch.utils.data.Dataset):
         图像变换结果1 = self.图像变换(图像)
         图像变换结果2 = self.图像变换(图像)
         return 图像变换结果1, 图像变换结果2
+
+
+def 训练模型(网络模型, 训练损失函数, 优化器, 训练数据, 硬件设备, 命令行参数):
+    最佳损失 = float("inf") # 初始无穷大,训练时损失计算到15位小数
+    学习率调整器 = torch.optim.lr_scheduler.ReduceLROnPlateau(优化器, mode='min', patience=2, threshold=0.05, cooldown=2)
+    for 当前训练周期 in range(1, 命令行参数.unlabeled_train_max_epoch):
+        网络模型.train()  # 开始训练
+        当前训练周期全部损失 = 0
+        # 每一批数据训练。enumerate可以在遍历元素的同时输出元素的索引
+        训练循环 = tqdm(enumerate(训练数据), total=len(训练数据),ncols=150, leave=True)
+        for 训练批次, (图像变换1, 图像变换2) in 训练循环:
+            图像变换1, 图像变换2 = 图像变换1.to(硬件设备), 图像变换2.to(硬件设备)
+
+            _, 特征1 = 网络模型(图像变换1)  # 特征1是最终输出特征 形状[批量大小 * 特征维度]
+            _, 特征2 = 网络模型(图像变换2)  # 特征2是最终输出特征 形状[批量大小 * 特征维度]
+
+            # 计算特征1和特征2之间的余弦相似度
+            训练损失 = 训练损失函数(特征1, 特征2, 命令行参数.unlabeled_data_batch_size)
+            优化器.zero_grad()
+            训练损失.backward()
+            优化器.step()
+            当前训练周期全部损失 += 训练损失.detach().item()
+            训练循环.set_description(f'训练迭代周期 [{当前训练周期}/{命令行参数.unlabeled_train_max_epoch}]') # 设置进度条标题
+            训练循环.set_postfix(训练损失 = 训练损失.detach().item()) # 每一批训练都更新损失
+
+        # 参数'a',打开一个文件用于追加。若该文件已存在，文件指针将会放在文件的结尾，新的内容将会被写入到已有内容之后。若该文件不存在，创建新文件进行写入。
+        with open(os.path.join("Weight", 优化器.__class__.__name__ + "stage1_loss.txt"), 'a') as f:
+            # 将损失写入文件并分隔
+            f.write(str(当前训练周期全部损失) + '\n')
+
+        学习率调整器.step(当前训练周期全部损失)  # 调整学习率
+        with open(os.path.join("Weight", 优化器.__class__.__name__ + "learnrate.txt"), 'a') as f:
+            # 记录学习率
+            f.write(str(优化器.param_groups[0]['lr']) + '\n')
+
+        if 当前训练周期全部损失 < 最佳损失:
+            最佳损失 = 当前训练周期全部损失
+            # 保存模型
+            torch.save(网络模型.state_dict(), os.path.join("Weight", 优化器.__class__.__name__ + "Best_model" + ".pth"))
+
 
 # 第一阶段无标签训练
 def 无标签训练(命令行参数):
@@ -56,18 +103,35 @@ def 无标签训练(命令行参数):
         硬件设备 = torch.device("cpu")
     print("训练使用设备", 硬件设备)
 
+    随机图像变换 = {
+        "训练集": transforms.Compose([
+            # TODO 选择合适的图像大小。是否需要随机高斯滤波
+            transforms.RandomResizedCrop(命令行参数.unlabeled_train_resize),  # 随机选取图像中的某一部分然后再缩放至指定大小
+            transforms.RandomHorizontalFlip(p=0.5),  # 随机水平翻转
+            # 修改亮度、对比度和饱和度
+            transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),  # 随机应用添加的各种图像变换
+            transforms.RandomGrayscale(p=0.2),  # todo 随机灰度化，但我本来就是灰度图啊
+            transforms.ToTensor(),  # 转换为张量且维度是[C, H, W]
+            # 三通道归一化
+            transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])]),
+        "测试集": transforms.Compose([
+            transforms.ToTensor(),
+            # 三通道归一化
+            transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])])
+    }
+
     无标签训练数据集 = 无标签眼底图像数据集(文件路径='UnlabeledTrainDataset/OCTA_6M/Projection Maps/OCTA(FULL)', 图像变换=随机图像变换["训练集"])
     # win可能多线程报错，num_workers最多和CPU的超线程数目相同，若报错设为0
     # 每次输出一个批次的数据
 
     # todo 如果维度报错注意修改drop_last
-    训练数据 = torch.utils.data.DataLoader(无标签训练数据集, batch_size=命令行参数.unlabeled_data_batch_size, shuffle=True, num_workers=8, drop_last=False, pin_memory=True)
+    训练数据 = torch.utils.data.DataLoader(无标签训练数据集, batch_size=命令行参数.unlabeled_data_batch_size, shuffle=True, num_workers=8, drop_last=True, pin_memory=True)
     # 训练数据 = torch.utils.data.DataLoader(无标签训练数据集, batch_size=命令行参数.unlabeled_data_batch_size, shuffle=True, num_workers=4, drop_last=False, pin_memory=True)
 
     # 用于无标签数据训练的模型
     网络模型 = SimCLRModel.无监督simCLRresnet50()
     残差网络预训练权重路径 = "Weight/resnet50-19c8e357.pth"
-    assert os.path.exists(残差网络预训练权重路径), "文件 {} 不存在.".format(残差网络预训练权重路径)
+    assert os.path.exists(残差网络预训练权重路径), "残差模型权重{}不存在.".format(残差网络预训练权重路径)
     残差模型参数 = torch.load(残差网络预训练权重路径, map_location=硬件设备) # 字典形式读取Res50的权重
     simCLR模型参数 = 网络模型.state_dict() # 自己设计的模型参数字典
 
@@ -77,56 +141,20 @@ def 无标签训练(命令行参数):
     网络模型.load_state_dict(simCLR模型参数) # 加载模型参数
     网络模型.to(硬件设备)
     训练损失函数 = SimCLRModel.对比损失函数().to(硬件设备) # 使用余弦相似度损失函数
-    优化器 = torch.optim.Adam(网络模型.parameters(), lr=1e-4, weight_decay=1e-6)
+
+    优化器1 = torch.optim.Adam(网络模型.parameters(), weight_decay=1e-6)
+    优化器2 = torch.optim.AdamW(网络模型.parameters(), weight_decay=1e-6)
+    优化器3 = torch.optim.Adamax(网络模型.parameters(), weight_decay=1e-6)
+    优化器4 = torch.optim.Adadelta(网络模型.parameters(), weight_decay=1e-6)
 
     # 开始训练
-    最佳损失 = float("inf") # 初始无穷大
-    for 当前训练周期 in range(1, 命令行参数.unlabeled_train_max_epoch + 1):
-        网络模型.train()  # 开始训练
-        全部损失 = 0
-        # 每一批数据训练。enumerate可以在遍历元素的同时输出元素的索引
-        训练循环 = tqdm(enumerate(训练数据), total=len(训练数据),ncols=150, leave=True)
-        for 训练批次, (图像变换1, 图像变换2) in 训练循环:
-            图像变换1, 图像变换2 = 图像变换1.to(硬件设备), 图像变换2.to(硬件设备)
-
-            _, 特征1 = 网络模型(图像变换1)  # 特征1是最终输出特征 形状[批量大小 * 特征维度]
-            _, 特征2 = 网络模型(图像变换2)  # 特征2是最终输出特征 形状[批量大小 * 特征维度]
-
-            # 计算特征1和特征2之间的余弦相似度
-            训练损失 = 训练损失函数(特征1, 特征2, 命令行参数.unlabeled_data_batch_size)
-            优化器.zero_grad()
-            训练损失.backward()
-            优化器.step()
-
-            # print("训练迭代次数", 当前训练周期, "训练批次", 训练批次, "损失:", 训练损失.detach().item())
-            全部损失 += 训练损失.detach().item()
-            训练循环.set_description(f'训练迭代周期 [{当前训练周期}/{命令行参数.unlabeled_train_max_epoch}]') # 设置进度条标题
-            训练循环.set_postfix(训练损失 = 训练损失.detach().item()) # 每一批训练都更新损失
-
-        # 参数'a',打开一个文件用于追加。若该文件已存在，文件指针将会放在文件的结尾，新的内容将会被写入到已有内容之后。若该文件不存在，创建新文件进行写入。
-        with open(os.path.join("Weight", "stage1_loss.txt"), 'a') as f:
-            # 将损失写入文件并用逗号分隔
-            f.write(str(全部损失 / len(无标签训练数据集) * 命令行参数.unlabeled_data_batch_size) + '\n')
-
-        if 全部损失 < 最佳损失:
-            最佳损失 = 全部损失
-            torch.save(网络模型.state_dict(), os.path.join("Weight", "Best_model" + ".pth"))
-
-        '''
-        if 当前训练周期 % 50 == 0:
-            # 每50周期保存一次模型
-            torch.save(网络模型.state_dict(), os.path.join("Weight", "model_stage1_epoch" + str(当前训练周期) + ".pth"))
-        '''
+    训练模型(网络模型, 训练损失函数, 优化器1, 训练数据, 硬件设备, 命令行参数)
+    训练模型(网络模型, 训练损失函数, 优化器2, 训练数据, 硬件设备, 命令行参数)
+    训练模型(网络模型, 训练损失函数, 优化器3, 训练数据, 硬件设备, 命令行参数)
+    训练模型(网络模型, 训练损失函数, 优化器4, 训练数据, 硬件设备, 命令行参数)
 
 
 if __name__ == '__main__':
-    # 设置一个参数解析器
-    命令行参数解析器 = argparse.ArgumentParser(description='无标签数据训练 SimCLR')
-
-    # 添加无标签数据训练时的参数
-    命令行参数解析器.add_argument('--unlabeled_data_batch_size', default=100, type=int, help='')
-    命令行参数解析器.add_argument('--unlabeled_train_max_epoch', default=6000, type=int, help='')
-
     # 获取命令行传入的参数
     无标签训练命令行参数 = 命令行参数解析器.parse_args()
     无标签训练(无标签训练命令行参数)
