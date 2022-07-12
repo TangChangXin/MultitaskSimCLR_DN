@@ -1,4 +1,4 @@
-import torch
+import torch, os
 import torch.nn as nn
 import torch.nn.functional as F
 from torchsummary import summary
@@ -182,9 +182,20 @@ def simCLRresnet34():
     # https://download.pytorch.org/models/resnet34-333f7ec4.pth
     return SimCLR无标签训练阶段(BasicBlock, [3, 4, 6, 3])
 
-def 无监督simCLRresnet50():
+def 无监督simCLRresnet50(预训练):
     # https://download.pytorch.org/models/resnet50-19c8e357.pth
-    return SimCLR无标签训练阶段(Bottleneck, [3, 4, 6, 3])
+    网络模型 = SimCLR无标签训练阶段(Bottleneck, [3, 4, 6, 3])
+    if 预训练:
+        残差网络预训练权重路径 = "Weight/resnet50-19c8e357.pth"
+        assert os.path.exists(残差网络预训练权重路径), "残差模型权重{}不存在.".format(残差网络预训练权重路径)
+        残差模型参数 = torch.load(残差网络预训练权重路径)  # 字典形式读取Res50的权重
+        simCLR模型参数 = 网络模型.state_dict()  # 自己设计的模型参数字典
+
+        # 我的模型只使用Res50模型从开头的第一个卷积层到最后一个全局自适应池化层作为编码器，所以遍历Res50的参数并赋值给我模型中对应名称的参数
+        编码器参数 = {键: 值 for 键, 值 in 残差模型参数.items() if 键 in simCLR模型参数.keys()}
+        simCLR模型参数.update(编码器参数)  # 更新我模型的参数，实际就是使用Res50模型参数
+        网络模型.load_state_dict(simCLR模型参数)  # 加载模型参数
+    return 网络模型
 
 def resnet101():
     # https://download.pytorch.org/models/resnet101-5d3b4d8f.pth
@@ -205,9 +216,6 @@ def resnext101_32x8d():
     return SimCLR无标签训练阶段(Bottleneck, [3, 4, 23, 3],
                   groups=groups,
                   width_per_group=width_per_group)
-
-
-
 
 
 # 阶段2，有标签数据训练
@@ -326,7 +334,7 @@ class 对比损失函数(nn.Module):
 
 if __name__ == "__main__":
     # 无监督训练模型 = SimCLR无标签阶段(Bottleneck, [3, 4, 6, 3])
-    无监督训练模型 = 无监督simCLRresnet50()
+    无监督训练模型 = 无监督simCLRresnet50(False)
     无监督训练模型.to(torch.device('cuda:0'))
     # print(model)
     summary(无监督训练模型, input_size=(3, 112, 112), batch_size=4)
